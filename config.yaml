@@ -41,7 +41,7 @@ resource:
 
 # --- Antibiotic stress ---
 antibiotic:
-  mode: "gradual"                  # "gradual" | "spike"
+  mode: "gradual"                  # "gradual" | "spike" | "center" | "sweep"
   start_epoch: 60                  # epoch of introduction
   gradual_rate: 0.05               # per-epoch addition at source edge
   spike_concentration: 5.0         # single bolus amount

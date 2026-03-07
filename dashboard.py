@@ -234,6 +234,9 @@ def download_report():
         csv_path = os.path.join("output", "simulation_metrics.csv")
         if os.path.isfile(csv_path):
             zf.write(csv_path, os.path.join("report", "simulation_metrics.csv"))
+        # Add config file
+        if os.path.isfile("config.yaml"):
+            zf.write("config.yaml", os.path.join("report", "config.yaml"))
     buf.seek(0)
     return send_file(
         buf,

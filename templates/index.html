@@ -211,7 +211,7 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
         <div class="form-group"><label>Resource Scenario</label>
           <select id="cfgResource"><option value="resource-rich">Resource Rich</option><option value="resource-depleted">Resource Depleted</option></select></div>
         <div class="form-group"><label>Antibiotic Mode</label>
-          <select id="cfgABMode"><option value="gradual">Gradual</option><option value="spike">Spike</option></select></div>
+          <select id="cfgABMode"><option value="gradual">Gradual (top→bottom front)</option><option value="spike">Spike (uniform bolus)</option><option value="center">Center (radial spread)</option><option value="sweep">Sweep (row-by-row)</option></select></div>
         <div class="form-group"><label>Antibiotic Start Epoch</label><input type="number" id="cfgABStart" value="60"/></div>
         <div class="form-group"><label>Random Seed</label><input type="text" id="cfgSeed" value="42" placeholder="blank = random"/></div>
         <div class="form-group"><label>Grid Width</label><input type="number" id="cfgGridW" value="200" min="20" max="500"/></div>

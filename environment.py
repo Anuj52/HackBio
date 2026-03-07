@@ -108,22 +108,42 @@ class Environment:
 
     def _update_antibiotic(self, epoch: int) -> None:
         if epoch >= self.ab_start_epoch:
+            elapsed = epoch - self.ab_start_epoch
+
             if self.ab_mode == "gradual":
-                # Introduce with spatial gradient from top edge —
-                # models drug diffusion from source (disk-diffusion analogy).
-                # Linear falloff across top 60% of grid.
-                grad = np.zeros(self.shape, dtype=np.float64)
-                depth = int(self.height * 0.6)
-                for r in range(depth):
-                    frac = 1.0 - r / depth  # 1.0 at top → 0.0 at depth
-                    grad[r, :] = self.ab_gradual_rate * frac
-                self.antibiotic += grad
-            elif self.ab_mode == "spike" and epoch == self.ab_start_epoch:
-                # Spike with gradient from top
-                depth = int(self.height * 0.6)
-                for r in range(depth):
-                    frac = 1.0 - r / depth
-                    self.antibiotic[r, :] += self.ab_spike_conc * frac
+                # Advancing front: the injection row moves downward each epoch.
+                # The front advances at ~1 row/epoch, so the full grid is
+                # covered over H epochs — models IV drip or gradual perfusion.
+                front_row = min(elapsed, self.height - 1)
+                # Inject at the current front row and a few rows above it
+                band = max(1, int(self.height * 0.05))  # 5% of grid as band
+                for r in range(max(0, front_row - band), front_row + 1):
+                    self.antibiotic[r, :] += self.ab_gradual_rate
+
+            elif self.ab_mode == "spike":
+                # Single bolus applied uniformly at start epoch
+                if epoch == self.ab_start_epoch:
+                    self.antibiotic += self.ab_spike_conc
+
+            elif self.ab_mode == "center":
+                # Radial spread from center — models localized injection.
+                # The radius grows each epoch; concentration decays with
+                # distance from center (Gaussian-like profile).
+                cy, cx = self.height / 2.0, self.width / 2.0
+                radius = min(elapsed * 1.0, max(self.height, self.width) / 2.0)
+                yy, xx = np.ogrid[:self.height, :self.width]
+                dist = np.sqrt((yy - cy) ** 2 + (xx - cx) ** 2)
+                mask = dist <= radius
+                # Concentration falls off with distance from center
+                falloff = np.where(mask, 1.0 - dist / (radius + 1e-9), 0.0)
+                self.antibiotic += self.ab_gradual_rate * falloff
+
+            elif self.ab_mode == "sweep":
+                # Full-width sweep from top to bottom over grid-height epochs.
+                # Each epoch, a thin horizontal band injects antibiotic.
+                row = min(elapsed, self.height - 1)
+                self.antibiotic[row, :] += self.ab_gradual_rate * 2.0
+
         self.antibiotic *= (1.0 - self.ab_decay)
         self.antibiotic = self._diffuse(self.antibiotic, self.ab_diffusion)
         ab_max = self.cfg.get("antibiotic", {}).get("max_concentration", 10.0)
