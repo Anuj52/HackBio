@@ -5,12 +5,23 @@
 # ------------------------------------
 # Growth: Monod kinetics (Monod J., 1949, Ann. Rev. Microbiol.)
 #   μ = μ_max · S / (K_s + S)
+#   ΔX = μ ;  ΔS = μ / Y_{X/S}   (mass-balance conservation)
+# Logistic growth: lab_bacterial_growth repo uses logistic eq.
+#   N(t) = K / (1 + ((K − N₀)/N₀) · e^{−k·t})  where k = ln2/T_d
+#   In our ABM this S-curve *emerges* from per-agent Monod + carrying cap.
+# LTEE: E. coli Long-Term Evolution Experiment (Lenski 1988–present)
+#   - Fitness increase follows a power law (Wiser et al. 2013)
+#   - Mutation accumulation is linear & clock-like (Barrick et al. 2009)
+#   - 50 % of populations evolved hypermutator phenotypes
+#   - All 12 populations show increased cell size & faster growth
 # Carrying capacity: Logistic growth ceiling (Verhulst, 1838)
 # Death: Stochastic, age-dependent senescence + environmental stress
+#   Antibiotic death uses saturating Hill function (half-max = 2.0)
 # Toxins: Narrow-spectrum bacteriocins (colicin model, Riley & Wertz 2002)
 # Quorum Sensing: LuxI/LuxR autoinducer circuit (Fuqua et al., 1994)
 # Biofilm: EPS matrix as public good, reduces antibiotic penetration
-# HGT: Conjugative plasmid transfer (Frost et al., 2005)
+# HGT: One-way conjugative plasmid transfer (Frost et al., 2005)
+#   Donor sends copy of resistance plasmid to recipient; donor retains traits
 # Fitness: Multi-trait weighted landscape (Fisher's geometric model)
 # Conservation: Mass-balance enforced — growth requires resource consumption,
 #   toxin/EPS production costs biomass (thermodynamic constraint)
@@ -23,19 +34,20 @@ grid:
 
 resource:
   scenario: "resource-rich"        # "resource-rich" | "resource-depleted"
-  initial_concentration: 10.0      # nutrient units per cell
-  replenishment_rate: 0.05         # chemostat inflow per epoch (resource-rich only)
+  initial_concentration: 15.0      # nutrient units per cell (DM25 glucose analog)
+  replenishment_rate: 0.25         # chemostat inflow per epoch (resource-rich only)
   diffusion_rate: 0.1              # Fickian diffusion coefficient
-  max_concentration: 20.0          # finite reservoir cap
+  max_concentration: 30.0          # finite reservoir cap
 
 # --- Antibiotic stress ---
 antibiotic:
   mode: "gradual"                  # "gradual" | "spike"
   start_epoch: 60                  # epoch of introduction
-  gradual_rate: 0.02               # per-epoch increase
+  gradual_rate: 0.05               # per-epoch addition at source edge
   spike_concentration: 5.0         # single bolus amount
-  decay_rate: 0.01                 # first-order degradation
-  diffusion_rate: 0.08
+  decay_rate: 0.015                # slower decay → gradient propagates further
+  diffusion_rate: 0.3              # strong diffusion → visible spatial gradient
+  max_concentration: 8.0           # absolute cap (prevents runaway accumulation)
 
 # --- Bacterium defaults ---
 bacterium:
@@ -69,10 +81,10 @@ genotype:
 
 # --- Quorum Sensing / Cooperation ---
 quorum_sensing:
-  signal_production_rate: 0.02     # AHL per cell per epoch
+  signal_production_rate: 0.05     # AHL per cell per epoch (increased for spatial model)
   signal_diffusion_rate: 0.12
   signal_decay_rate: 0.05          # enzymatic degradation
-  activation_threshold: 1.0        # [AHL] threshold for LuxR activation
+  activation_threshold: 0.15       # [AHL] for LuxR activation (lowered for sparse grid)
   biofilm_resistance_multiplier: 0.5
   biofilm_resource_sharing: 0.05   # fraction of consumed resource shared locally
 

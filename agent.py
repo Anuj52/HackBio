@@ -176,15 +176,22 @@ class Bacterium:
             self.biomass = 0.0
 
         # ── Growth (LOG / STATIONARY) ──
+        # Monod kinetics + mass-balance:
+        #   μ  = μ_max · S / (K_s + S)          … specific growth rate
+        #   ΔX = μ                                … biomass gain per cell
+        #   ΔS = μ / Y_{X/S}                     … substrate required
+        # If resource is insufficient, actual ΔX = consumed · Y.
+        # Reference: Monod (1949), Herbert (1958)
         daughter = None
         if self.phase in (Phase.LOG, Phase.STATIONARY):
             growth = self._monod_growth(local_res)
             if self.phase == Phase.STATIONARY:
                 growth *= 0.1
 
-            yld = self._cfg["monod"]["yield_coefficient"]
-            consumed = env.consume_resource(self.x, self.y, growth * yld)
-            self.biomass += consumed / yld if yld > 0 else 0.0
+            yld = self._cfg["monod"]["yield_coefficient"]  # Y_{X/S}
+            substrate_needed = growth / yld if yld > 0 else growth
+            consumed = env.consume_resource(self.x, self.y, substrate_needed)
+            self.biomass += consumed * yld
 
             # Division (suppressed above carrying capacity)
             if self.biomass >= self._cfg["bacterium"]["division_threshold"]:
@@ -242,9 +249,10 @@ class Bacterium:
 
         child_genotype = self.genotype.copy()
         mut_cfg = self._cfg["mutation"]
+        max_types = self._cfg["genotype"]["max_types"]
         mutated = False
         if random.random() < mut_cfg["rate"]:
-            child_genotype = self._mutate(child_genotype, mut_cfg)
+            child_genotype = self._mutate(child_genotype, mut_cfg, max_types)
             mutated = True
 
         # Daughter placed in random adjacent cell
@@ -265,8 +273,17 @@ class Bacterium:
         return daughter
 
     @staticmethod
-    def _mutate(gt: Genotype, mut_cfg: dict) -> Genotype:
-        """Point mutations — small perturbations to phenotypic traits."""
+    def _mutate(gt: Genotype, mut_cfg: dict, max_types: int = 20) -> Genotype:
+        """Point mutations — small perturbations to phenotypic traits.
+
+        Models imperfect DNA replication during binary fission.
+        Trait perturbations are drawn from uniform distributions
+        bounded by per-trait delta values — analogous to the
+        distribution of fitness effects (DFE) of new mutations.
+        A 10 % chance of lineage reassignment models rare
+        large-effect mutations that found novel clades (LTEE
+        shows ~10–20 beneficial fixations per 20 000 generations).
+        """
         gt.nutrient_efficiency += random.uniform(
             -mut_cfg["efficiency_delta"], mut_cfg["efficiency_delta"]
         )
@@ -289,8 +306,7 @@ class Bacterium:
         )
         gt.public_good_production = max(0.0, min(1.0, gt.public_good_production))
 
-        # Novel genotype lineage (speciation event)
-        max_types = 20
+        # Novel genotype lineage — rare large-effect mutation
         if random.random() < 0.1:
             gt.id = random.randint(0, max_types - 1)
         return gt
@@ -317,7 +333,9 @@ class Bacterium:
             biofilm_shield = env.biofilm[self.y, self.x]
             ab *= self._cfg["quorum_sensing"]["biofilm_resistance_multiplier"]
             ab *= max(0.3, 1.0 - biofilm_shield * 0.1)  # EPS reduces penetration
-        ab_death = ab * (1.0 - resistance) * 0.1
+        # Saturating Hill-function death: prevents runaway lethality at high [AB]
+        effective_ab = ab * (1.0 - resistance)
+        ab_death = 0.2 * effective_ab / (effective_ab + 2.0)  # half-max at 2.0
 
         # Foreign toxin (competitive exclusion)
         foreign_tox = env.get_foreign_toxin(self.genotype.id, self.x, self.y)
@@ -340,22 +358,31 @@ class Bacterium:
     # Horizontal Gene Transfer (conjugation)
     # ──────────────────────────────────────────────────────────
     def attempt_hgt(self, neighbours: list["Bacterium"], cfg: dict) -> bool:
-        """Transfer resistance or toxin trait from a neighbour. Returns True if HGT occurred."""
+        """Conjugative plasmid transfer from a neighbour donor (one-way).
+
+        Biological basis (Frost et al. 2005):
+          - Donor transfers a *copy* of its plasmid to the recipient.
+          - Donor retains its own traits (no loss).
+          - Recipient acquires the donor's resistance (takes max if already
+            partially resistant, modelling additive plasmid acquisition).
+          - Optionally the donor's toxin-production cassette is co-transferred
+            (linked genes on the same plasmid, ~30 % probability).
+        """
         hgt_cfg = cfg["hgt"]
         for nb in neighbours:
             if nb.genotype.id == self.genotype.id:
                 continue
             if random.random() < hgt_cfg["probability"]:
-                # Swap antibiotic resistance (plasmid transfer)
-                self.genotype.antibiotic_resistance, nb.genotype.antibiotic_resistance = (
-                    nb.genotype.antibiotic_resistance,
+                # Recipient (self) acquires donor (nb) resistance — one-way
+                self.genotype.antibiotic_resistance = max(
                     self.genotype.antibiotic_resistance,
+                    nb.genotype.antibiotic_resistance,
                 )
-                # Optionally swap toxin production trait
+                # Co-transfer of toxin-production cassette (~30 %)
                 if random.random() < 0.3:
-                    self.genotype.toxin_production, nb.genotype.toxin_production = (
-                        nb.genotype.toxin_production,
+                    self.genotype.toxin_production = max(
                         self.genotype.toxin_production,
+                        nb.genotype.toxin_production,
                     )
                 return True
         return False
@@ -364,16 +391,30 @@ class Bacterium:
     # Chemotaxis-inspired movement
     # ──────────────────────────────────────────────────────────
     def move(self, env: "Environment") -> None:
-        """Biased random walk toward higher resource (chemotaxis)."""
+        """Biased random walk toward higher resource (chemotaxis).
+
+        Models the *run-and-tumble* motility of E. coli:
+          - 60 % of moves are *biased* (run toward the steepest
+            nutrient gradient in the Moore neighbourhood).
+          - 40 % of moves are random *tumbles* (uniform random
+            direction) — prevents the cell from getting stuck in
+            local optima, as observed in real chemotaxis.
+        Includes all 8 neighbour directions (Moore neighbourhood)
+        plus staying in place.
+        """
         if self.phase not in (Phase.LOG, Phase.STATIONARY):
             return
 
-        # Evaluate resource in each neighbour direction
         best_dx, best_dy = 0, 0
         best_res = env.resource[self.y, self.x]
-        directions = [(0, 1), (0, -1), (1, 0), (-1, 0), (0, 0)]
+        # Moore neighbourhood (8 directions + stay)
+        directions = [
+            (0, 1), (0, -1), (1, 0), (-1, 0),
+            (1, 1), (1, -1), (-1, 1), (-1, -1),
+            (0, 0),
+        ]
 
-        if random.random() < 0.6:  # 60% biased, 40% random (run-and-tumble)
+        if random.random() < 0.6:  # biased run
             for dx, dy in directions:
                 nx = max(0, min(env.width - 1, self.x + dx))
                 ny = max(0, min(env.height - 1, self.y + dy))
@@ -381,7 +422,7 @@ class Bacterium:
                 if r > best_res:
                     best_res = r
                     best_dx, best_dy = dx, dy
-        else:
+        else:  # random tumble
             best_dx, best_dy = random.choice(directions)
 
         self.x = max(0, min(env.width - 1, self.x + best_dx))

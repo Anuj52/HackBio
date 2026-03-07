@@ -7,14 +7,17 @@ Open: http://localhost:5000
 
 from __future__ import annotations
 
+import glob
+import io
 import os
 import threading
 import time
+import zipfile
 from collections import Counter
 
 import numpy as np
 import yaml
-from flask import Flask, render_template
+from flask import Flask, render_template, send_file
 from flask_socketio import SocketIO, emit
 
 from agent import Phase
@@ -152,6 +155,9 @@ def build_snapshot(sim: Simulation) -> dict:
         "ts_phase_stat": ts("phase_stationary"),
         "ts_phase_death": ts("phase_death"),
         "ts_genotypes": geno_ts,
+        "ts_cumulative_mutations": ts_get("cumulative_mutations", 0),
+        "ts_cumulative_hgt": ts_get("cumulative_hgt", 0),
+        "ts_resource_consumed": ts_get("total_resource_consumed", 0),
         "running": sim_running,
         "paused": sim_paused,
     }
@@ -205,6 +211,7 @@ def simulation_worker(cfg: dict):
 
     socketio.emit("status", {"running": False, "paused": False,
                              "epoch": sim.epoch if sim else 0})
+    socketio.emit("sim_complete", {})
     socketio.emit("log", {"msg": f"Simulation complete — {sim.epoch} epochs, "
                           f"{len(sim.agents)} agents alive"})
 
@@ -213,6 +220,27 @@ def simulation_worker(cfg: dict):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/report")
+def download_report():
+    """Generate a ZIP containing all chart PNGs and the CSV metrics file."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Add chart images
+        for png in sorted(glob.glob("charts/*.png")):
+            zf.write(png, os.path.join("report", png))
+        # Add CSV
+        csv_path = os.path.join("output", "simulation_metrics.csv")
+        if os.path.isfile(csv_path):
+            zf.write(csv_path, os.path.join("report", "simulation_metrics.csv"))
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name="simulation_report.zip",
+    )
 
 
 # ── Socket events ──
@@ -243,6 +271,8 @@ def on_start(data=None):
             "antibiotic_mode": ("antibiotic", "mode", str),
             "antibiotic_start": ("antibiotic", "start_epoch", int),
             "mutation_rate": ("mutation", "rate", float),
+            "grid_width": ("grid", "width", int),
+            "grid_height": ("grid", "height", int),
         }
         for key, (sec, param, typ) in mapping.items():
             if key in data and data[key] not in (None, ""):

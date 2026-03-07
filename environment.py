@@ -4,13 +4,24 @@ environment.py — Spatial grids for resources, antibiotics, QS signals, toxins,
 
 Biological basis:
   - Resource diffusion: Fick's second law (discretised 2D mean-filter)
-  - Antibiotic: first-order decay + spatial diffusion
+    with Neumann (no-flux) boundary conditions (reflects mass at edges).
+  - Resource depletion: Glucose-limited chemostat model (cf. DM25 in LTEE,
+    Lenski 2010). Replenishment rate models continuous-flow reactor.
+  - Antibiotic: first-order decay + spatial diffusion; introduced as a
+    gradient from the top edge (disk-diffusion assay analogy).
   - QS signal: AHL autoinducer with enzymatic decay (AiiA lactonase)
   - Toxin: per-genotype bacteriocin grids
   - Biofilm: EPS matrix grid — collective public good
 
 Conservation law: Resources are finite. Consumption by agents removes from grid.
 Replenishment only in "resource-rich" mode (models chemostat/flow reactor).
+
+LTEE context:
+  - The E. coli LTEE (Lenski et al., 1988–present) uses DM25 minimal glucose
+    medium (25 mg/L glucose), supporting ~5×10^8 cells in 10 mL.
+  - Daily 1:100 serial transfer gives 6.64 generations/day.
+  - Our per-epoch replenishment models the nutrient refresh aspect of
+    serial passage without explicit dilution events.
 """
 
 from __future__ import annotations
@@ -75,7 +86,8 @@ class Environment:
     # ──────────────────────────────────────────────────────────────
     @staticmethod
     def _diffuse(grid: np.ndarray, rate: float) -> np.ndarray:
-        blurred = uniform_filter(grid, size=3, mode="constant", cval=0.0)
+        # Neumann (no-flux) boundaries — reflect mode preserves mass at edges
+        blurred = uniform_filter(grid, size=3, mode="reflect")
         return grid + rate * (blurred - grid)
 
     # ──────────────────────────────────────────────────────────────
@@ -97,12 +109,25 @@ class Environment:
     def _update_antibiotic(self, epoch: int) -> None:
         if epoch >= self.ab_start_epoch:
             if self.ab_mode == "gradual":
-                self.antibiotic += self.ab_gradual_rate
+                # Introduce with spatial gradient from top edge —
+                # models drug diffusion from source (disk-diffusion analogy).
+                # Linear falloff across top 60% of grid.
+                grad = np.zeros(self.shape, dtype=np.float64)
+                depth = int(self.height * 0.6)
+                for r in range(depth):
+                    frac = 1.0 - r / depth  # 1.0 at top → 0.0 at depth
+                    grad[r, :] = self.ab_gradual_rate * frac
+                self.antibiotic += grad
             elif self.ab_mode == "spike" and epoch == self.ab_start_epoch:
-                self.antibiotic += self.ab_spike_conc
+                # Spike with gradient from top
+                depth = int(self.height * 0.6)
+                for r in range(depth):
+                    frac = 1.0 - r / depth
+                    self.antibiotic[r, :] += self.ab_spike_conc * frac
         self.antibiotic *= (1.0 - self.ab_decay)
         self.antibiotic = self._diffuse(self.antibiotic, self.ab_diffusion)
-        np.clip(self.antibiotic, 0.0, None, out=self.antibiotic)
+        ab_max = self.cfg.get("antibiotic", {}).get("max_concentration", 10.0)
+        np.clip(self.antibiotic, 0.0, ab_max, out=self.antibiotic)
 
     def _update_signal(self) -> None:
         self.signal *= (1.0 - self.signal_decay)

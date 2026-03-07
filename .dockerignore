@@ -6,3 +6,4 @@ charts/
 .git/
 .vscode/
 *.egg-info/
+lab_bacterial_growth/

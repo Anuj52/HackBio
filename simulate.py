@@ -39,6 +39,10 @@ class Simulation:
         self.hgt_events_this_epoch: int = 0
         self.deaths_this_epoch: int = 0
 
+        # Cumulative counters (LTEE: mutation accumulation is linear & clock-like)
+        self.cumulative_mutations: int = 0
+        self.cumulative_hgt: int = 0
+
         # Seed
         seed = cfg["simulation"].get("seed")
         if seed is not None:
@@ -144,6 +148,10 @@ class Simulation:
                 if agent.attempt_hgt(nbs, self.cfg):
                     self.hgt_events_this_epoch += 1
 
+        # Accumulate into cumulative counters (LTEE clock-like tracking)
+        self.cumulative_mutations += self.mutations_this_epoch
+        self.cumulative_hgt += self.hgt_events_this_epoch
+
         # 4. Remove dead
         self.agents = [a for a in self.agents if a.alive]
 
@@ -219,6 +227,9 @@ class Simulation:
             "phase_death": phase_counts.get("DEATH", 0),
             "mean_antibiotic": round(self.env.mean_antibiotic(), 6),
             "mean_biofilm": round(self.env.mean_biofilm(), 6),
+            "cumulative_mutations": self.cumulative_mutations,
+            "cumulative_hgt": self.cumulative_hgt,
+            "total_resource_consumed": round(self.env.total_resource_consumed, 4),
         }
         self.metrics.append(row)
 
@@ -263,6 +274,7 @@ class Simulation:
             "biofilm_fraction", "hgt_events", "divisions", "deaths",
             "phase_lag", "phase_log", "phase_stationary", "phase_death",
             "mean_antibiotic", "mean_biofilm",
+            "cumulative_mutations", "cumulative_hgt", "total_resource_consumed",
         ]
 
         with open(path, "w", newline="") as f:
@@ -293,6 +305,9 @@ class Simulation:
                     "phase_death": m["phase_death"],
                     "mean_antibiotic": m["mean_antibiotic"],
                     "mean_biofilm": m["mean_biofilm"],
+                    "cumulative_mutations": m["cumulative_mutations"],
+                    "cumulative_hgt": m["cumulative_hgt"],
+                    "total_resource_consumed": m["total_resource_consumed"],
                 })
                 writer.writerow(row)
         return path
