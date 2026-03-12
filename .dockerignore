@@ -1,9 +1,19 @@
-venv/
-__pycache__/
-*.pyc
+# Directories
 output/
 charts/
+__pycache__/
 .git/
-.vscode/
-*.egg-info/
-lab_bacterial_growth/
+venv/
+.venv/
+tests/
+.pytest_cache/
+
+# Files
+*.pyc
+*.pyo
+*.egg-info
+.gitignore
+.dockerignore
+README.md
+TEAM.txt
+*.md

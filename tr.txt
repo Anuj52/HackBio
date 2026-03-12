@@ -1,0 +1,71 @@
+.......FF...FFFEE....................F.....F..........                   [100%]
+=================================== ERRORS ====================================
+_______________ ERROR at setup of TestFlaskApp.test_index_route _______________
+tests\test_dashboard.py:53: in client
+    from dashboard import app
+dashboard.py:25: in <module>
+    from flask import Flask, jsonify, render_template, send_file
+E   ModuleNotFoundError: No module named 'flask'
+____________ ERROR at setup of TestFlaskApp.test_snapshot_no_data _____________
+tests\test_dashboard.py:53: in client
+    from dashboard import app
+dashboard.py:25: in <module>
+    from flask import Flask, jsonify, render_template, send_file
+E   ModuleNotFoundError: No module named 'flask'
+================================== FAILURES ===================================
+__________________ TestMutation.test_mutation_changes_traits __________________
+tests\test_agent.py:88: in test_mutation_changes_traits
+    new_gt, mutated = Bacterium._mutate(gt, mut_cfg, max_types=5)
+    ^^^^^^^^^^^^^^^
+E   TypeError: cannot unpack non-iterable Genotype object
+_________________ TestMutation.test_resistance_stays_bounded __________________
+tests\test_agent.py:99: in test_resistance_stays_bounded
+    gt, _ = Bacterium._mutate(gt, mut_cfg, max_types=5)
+    ^^^^^
+E   TypeError: cannot unpack non-iterable Genotype object
+____________________ TestBuildSnapshot.test_snapshot_keys _____________________
+tests\test_dashboard.py:11: in test_snapshot_keys
+    from dashboard import build_snapshot
+dashboard.py:25: in <module>
+    from flask import Flask, jsonify, render_template, send_file
+E   ModuleNotFoundError: No module named 'flask'
+________________ TestBuildSnapshot.test_snapshot_serializable _________________
+tests\test_dashboard.py:27: in test_snapshot_serializable
+    from dashboard import build_snapshot
+dashboard.py:25: in <module>
+    from flask import Flask, jsonify, render_template, send_file
+E   ModuleNotFoundError: No module named 'flask'
+_________________ TestBuildSnapshot.test_bacteria_list_format _________________
+tests\test_dashboard.py:38: in test_bacteria_list_format
+    from dashboard import build_snapshot
+dashboard.py:25: in <module>
+    from flask import Flask, jsonify, render_template, send_file
+E   ModuleNotFoundError: No module named 'flask'
+______________ TestReplayBuffer.test_sample_returns_correct_size ______________
+tests\test_rl_agent.py:53: in test_sample_returns_correct_size
+    assert actions.shape == (8, 1)
+E   assert (8,) == (8, 1)
+E     
+E     Right contains one more item: 1
+E     Use -v to get more diff
+____________________ TestComputeReward.test_death_penalty _____________________
+tests\test_rl_agent.py:110: in test_death_penalty
+    assert r <= -10.0
+E   assert -9.9 <= -10.0
+============================== warnings summary ===============================
+environment.py:39
+  c:\hackbio\environment.py:39: UserWarning: A NumPy version >=1.22.4 and <2.3.0 is required for this version of SciPy (detected version 2.3.2)
+    from scipy.ndimage import uniform_filter
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_agent.py::TestMutation::test_mutation_changes_traits - Type...
+FAILED tests/test_agent.py::TestMutation::test_resistance_stays_bounded - Typ...
+FAILED tests/test_dashboard.py::TestBuildSnapshot::test_snapshot_keys - Modul...
+FAILED tests/test_dashboard.py::TestBuildSnapshot::test_snapshot_serializable
+FAILED tests/test_dashboard.py::TestBuildSnapshot::test_bacteria_list_format
+FAILED tests/test_rl_agent.py::TestReplayBuffer::test_sample_returns_correct_size
+FAILED tests/test_rl_agent.py::TestComputeReward::test_death_penalty - assert...
+ERROR tests/test_dashboard.py::TestFlaskApp::test_index_route - ModuleNotFoun...
+ERROR tests/test_dashboard.py::TestFlaskApp::test_snapshot_no_data - ModuleNo...
+7 failed, 45 passed, 1 warning, 2 errors in 6.40s

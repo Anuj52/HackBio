@@ -119,9 +119,18 @@ physics:
   pressure_atm: 1.0                  # atmospheric pressure (growth declines >1 atm)
   ph: 7.0                            # pH — E. coli optimal 6.5–7.5 (range 4–9)
 
+# --- Persister Cells ---
+persister:
+  enabled: true                      # toggle persister cell dynamics
+  entry_rate: 0.005                  # probability of entering dormancy per epoch
+  exit_rate: 0.02                    # probability of waking from dormancy per epoch
+  stress_threshold: 0.3             # antibiotic level that triggers persister entry
+  dormancy_resistance: 0.95          # effective resistance during dormancy
+
 # --- Reinforcement Learning (Double DQN) ---
 rl:
   enabled: true                      # toggle RL brain (false = heuristic only)
+  architecture: "dueling"            # "vanilla" or "dueling" DQN
   gamma: 0.99                        # discount factor
   epsilon_start: 1.0                 # initial exploration rate
   epsilon_min: 0.05                  # minimum exploration rate
@@ -133,6 +142,10 @@ rl:
   tau: 0.005                         # soft update coefficient
   train_every: 5                     # epochs between DQN training steps
   force_cpu: false                   # true = ignore GPU even if available
+  per_alpha: 0.6                     # PER priority exponent
+  per_beta: 0.4                      # PER importance sampling start
+  per_beta_anneal: 0.001             # PER beta annealing per step
+  checkpoint_path: "output/dqn_checkpoint.pt"  # path to save/load trained model
 
 # --- Simulation ---
 simulation:
@@ -141,3 +154,4 @@ simulation:
   charts_dir: "charts"
   csv_filename: "simulation_metrics.csv"
   seed: 42
+

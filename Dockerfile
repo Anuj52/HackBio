@@ -8,18 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
 # Copy project files
-COPY config.yaml .
-COPY environment.py .
-COPY agent.py .
-COPY simulate.py .
-COPY visualize.py .
-COPY dashboard.py .
-COPY main.py .
-COPY gpu_utils.py .
-COPY rl_agent.py .
-COPY mesa_model.py .
-COPY TEAM.txt .
-COPY templates/ templates/
+COPY . .
 
 # Create output directories
 RUN mkdir -p output charts

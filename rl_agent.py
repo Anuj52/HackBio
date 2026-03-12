@@ -34,10 +34,14 @@ Action space (7 discrete):
 References:
   Mnih et al. (2015) Human-level control through deep RL, Nature.
   van Hasselt et al. (2016) Deep RL with Double Q-learning, AAAI.
+  Wang et al. (2016) Dueling Network Architectures, ICML.
+  Schaul et al. (2016) Prioritized Experience Replay, ICLR.
 """
 
 from __future__ import annotations
 
+import logging
+import os
 import random
 from collections import deque
 from enum import IntEnum
@@ -48,6 +52,8 @@ import torch.nn as nn
 import torch.optim as optim
 
 from gpu_utils import get_device
+
+logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────
 STATE_DIM = 14
@@ -90,6 +96,33 @@ class DQNetwork(nn.Module):
         return self.net(x)
 
 
+class DuelingDQNetwork(nn.Module):
+    """Dueling DQN: splits into value and advantage streams (Wang 2016)."""
+
+    def __init__(self, state_dim: int = STATE_DIM, action_dim: int = ACTION_DIM,
+                 hidden: int = 128):
+        super().__init__()
+        self.feature = nn.Sequential(
+            nn.Linear(state_dim, hidden),
+            nn.ReLU(),
+        )
+        self.value_stream = nn.Sequential(
+            nn.Linear(hidden, hidden // 2), nn.ReLU(),
+            nn.Linear(hidden // 2, 1),
+        )
+        self.advantage_stream = nn.Sequential(
+            nn.Linear(hidden, hidden // 2), nn.ReLU(),
+            nn.Linear(hidden // 2, action_dim),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        feat = self.feature(x)
+        value = self.value_stream(feat)
+        advantage = self.advantage_stream(feat)
+        # Q = V(s) + A(s,a) - mean(A)
+        return value + advantage - advantage.mean(dim=1, keepdim=True)
+
+
 # ── Experience Replay ────────────────────────────────────────
 class ReplayBuffer:
     """Fixed-size circular buffer storing (s, a, r, s', done) tuples."""
@@ -113,6 +146,111 @@ class ReplayBuffer:
 
     def __len__(self) -> int:
         return len(self.buffer)
+
+
+# ── Prioritized Experience Replay (Schaul 2016) ─────────────
+class SumTree:
+    """Binary tree for efficient proportional sampling."""
+
+    def __init__(self, capacity: int):
+        self.capacity = capacity
+        self.tree = np.zeros(2 * capacity - 1)
+        self.data = [None] * capacity
+        self.write = 0
+        self.n_entries = 0
+
+    def _propagate(self, idx: int, change: float):
+        parent = (idx - 1) // 2
+        self.tree[parent] += change
+        if parent != 0:
+            self._propagate(parent, change)
+
+    def _retrieve(self, idx: int, s: float) -> int:
+        left = 2 * idx + 1
+        right = left + 1
+        if left >= len(self.tree):
+            return idx
+        if s <= self.tree[left]:
+            return self._retrieve(left, s)
+        return self._retrieve(right, s - self.tree[left])
+
+    def total(self) -> float:
+        return self.tree[0]
+
+    def add(self, priority: float, data):
+        idx = self.write + self.capacity - 1
+        self.data[self.write] = data
+        self.update(idx, priority)
+        self.write = (self.write + 1) % self.capacity
+        self.n_entries = min(self.n_entries + 1, self.capacity)
+
+    def update(self, idx: int, priority: float):
+        change = priority - self.tree[idx]
+        self.tree[idx] = priority
+        self._propagate(idx, change)
+
+    def get(self, s: float):
+        idx = self._retrieve(0, s)
+        data_idx = idx - self.capacity + 1
+        return idx, self.tree[idx], self.data[data_idx]
+
+
+class PrioritizedReplayBuffer:
+    """PER with proportional prioritization."""
+
+    def __init__(self, capacity: int = 50_000, alpha: float = 0.6):
+        self.tree = SumTree(capacity)
+        self.alpha = alpha
+        self.epsilon = 1e-5
+
+    def push(self, state, action, reward, next_state, done, td_error: float = 1.0):
+        priority = (abs(td_error) + self.epsilon) ** self.alpha
+        self.tree.add(priority, (state, action, reward, next_state, done))
+
+    def sample(self, batch_size: int, beta: float = 0.4):
+        batch = []
+        idxs = []
+        priorities = []
+        segment = self.tree.total() / batch_size
+
+        for i in range(batch_size):
+            s = random.uniform(segment * i, segment * (i + 1))
+            idx, p, data = self.tree.get(s)
+            if data is None:
+                # Fallback: sample again
+                s = random.uniform(0, self.tree.total())
+                idx, p, data = self.tree.get(s)
+            if data is not None:
+                batch.append(data)
+                idxs.append(idx)
+                priorities.append(p)
+
+        if not batch:
+            return None
+
+        states, actions, rewards, next_states, dones = zip(*batch)
+        # Importance sampling weights
+        probs = np.array(priorities) / (self.tree.total() + 1e-9)
+        weights = (self.tree.n_entries * probs + 1e-9) ** (-beta)
+        weights /= weights.max()
+
+        return (
+            np.array(states, dtype=np.float32),
+            np.array(actions, dtype=np.int64),
+            np.array(rewards, dtype=np.float32),
+            np.array(next_states, dtype=np.float32),
+            np.array(dones, dtype=np.float32),
+            np.array(weights, dtype=np.float32),
+            idxs,
+        )
+
+    def update_priorities(self, idxs: list, td_errors: np.ndarray):
+        for idx, td in zip(idxs, td_errors):
+            priority = (abs(float(td)) + self.epsilon) ** self.alpha
+            self.tree.update(idx, priority)
+
+    def __len__(self) -> int:
+        return self.tree.n_entries
 
 
 # ── State / Reward helpers ───────────────────────────────────
@@ -235,16 +373,34 @@ class BacterialDQN:
         self.tau: float = rl.get("tau", 0.005)
         self.train_every: int = rl.get("train_every", 5)
         self.enabled: bool = rl.get("enabled", True)
+        self.checkpoint_path: str = rl.get("checkpoint_path", "output/dqn_checkpoint.pt")
 
-        self.policy_net = DQNetwork().to(self.device)
-        self.target_net = DQNetwork().to(self.device)
+        # Choose architecture
+        arch = rl.get("architecture", "vanilla")
+        NetClass = DuelingDQNetwork if arch == "dueling" else DQNetwork
+        self.policy_net = NetClass().to(self.device)
+        self.target_net = NetClass().to(self.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
 
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.lr)
-        self.replay = ReplayBuffer(rl.get("buffer_size", 50_000))
+
+        # Choose replay buffer
+        use_per = rl.get("per_alpha", 0) > 0
+        self.use_per = use_per
+        if use_per:
+            self.replay = PrioritizedReplayBuffer(
+                rl.get("buffer_size", 50_000),
+                alpha=rl.get("per_alpha", 0.6),
+            )
+            self.per_beta = rl.get("per_beta", 0.4)
+            self.per_beta_anneal = rl.get("per_beta_anneal", 0.001)
+        else:
+            self.replay = ReplayBuffer(rl.get("buffer_size", 50_000))
+
         self.steps: int = 0
         self._losses: list[float] = []
+        logger.info("DQN initialized: arch=%s, PER=%s, device=%s", arch, use_per, self.device)
 
     # ── Action selection ─────────────────────────────────────
     def select_action(self, state: np.ndarray) -> int:
@@ -279,12 +435,23 @@ class BacterialDQN:
         """Single Double-DQN update from the replay buffer."""
         if len(self.replay) < self.batch_size:
             return None
-        s, a, r, ns, d = self.replay.sample(self.batch_size)
-        s = torch.FloatTensor(s).to(self.device)
-        a = torch.LongTensor(a).to(self.device)
-        r = torch.FloatTensor(r).to(self.device)
-        ns = torch.FloatTensor(ns).to(self.device)
-        d = torch.FloatTensor(d).to(self.device)
+
+        if self.use_per:
+            result = self.replay.sample(self.batch_size, self.per_beta)
+            if result is None:
+                return None
+            s_np, a_np, r_np, ns_np, d_np, weights_np, idxs = result
+            weights = torch.FloatTensor(weights_np).to(self.device)
+        else:
+            s_np, a_np, r_np, ns_np, d_np = self.replay.sample(self.batch_size)
+            weights = torch.ones(self.batch_size).to(self.device)
+            idxs = None
+
+        s = torch.FloatTensor(s_np).to(self.device)
+        a = torch.LongTensor(a_np).to(self.device)
+        r = torch.FloatTensor(r_np).to(self.device)
+        ns = torch.FloatTensor(ns_np).to(self.device)
+        d = torch.FloatTensor(d_np).to(self.device)
 
         q = self.policy_net(s).gather(1, a.unsqueeze(1)).squeeze(1)
         with torch.no_grad():
@@ -292,11 +459,17 @@ class BacterialDQN:
             q_next = self.target_net(ns).gather(1, best.unsqueeze(1)).squeeze(1)
             target = r + self.gamma * q_next * (1 - d)
 
-        loss = nn.SmoothL1Loss()(q, target)
+        td_errors = (q - target).detach()
+        loss = (weights * nn.SmoothL1Loss(reduction='none')(q, target)).mean()
         self.optimizer.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(self.policy_net.parameters(), 1.0)
         self.optimizer.step()
+
+        # Update PER priorities
+        if self.use_per and idxs is not None:
+            self.replay.update_priorities(idxs, td_errors.abs().cpu().numpy())
+            self.per_beta = min(1.0, self.per_beta + self.per_beta_anneal)
 
         self.steps += 1
         if self.steps % self.target_update_freq == 0:
@@ -309,6 +482,36 @@ class BacterialDQN:
         lv = loss.item()
         self._losses.append(lv)
         return lv
+
+    def save_model(self, path: str | None = None) -> str:
+        """Save policy network weights to disk."""
+        path = path or self.checkpoint_path
+        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+        torch.save({
+            'policy_state_dict': self.policy_net.state_dict(),
+            'target_state_dict': self.target_net.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'epsilon': self.epsilon,
+            'steps': self.steps,
+        }, path)
+        logger.info("DQN checkpoint saved to %s", path)
+        return path
+
+    def load_model(self, path: str | None = None) -> bool:
+        """Load policy network weights from disk."""
+        path = path or self.checkpoint_path
+        if not os.path.isfile(path):
+            logger.warning("No checkpoint found at %s", path)
+            return False
+        checkpoint = torch.load(path, map_location=self.device, weights_only=True)
+        self.policy_net.load_state_dict(checkpoint['policy_state_dict'])
+        self.target_net.load_state_dict(checkpoint['target_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.epsilon = checkpoint.get('epsilon', self.epsilon)
+        self.steps = checkpoint.get('steps', self.steps)
+        logger.info("DQN checkpoint loaded from %s (steps=%d, eps=%.4f)",
+                    path, self.steps, self.epsilon)
+        return True
 
     def stats(self) -> dict:
         """Snapshot of RL training state for the dashboard."""
@@ -324,3 +527,4 @@ class BacterialDQN:
             ),
             "device": str(self.device),
         }
+

@@ -10,11 +10,14 @@ from __future__ import annotations
 import glob
 import io
 import json
+import logging
 import os
 import tempfile
 import threading
 import time
 import zipfile
+
+logger = logging.getLogger(__name__)
 from collections import Counter
 
 import numpy as np
@@ -88,6 +91,7 @@ def _bacteria_list(agents: list) -> list[list]:
             int(a.biofilm_member),
             a.age,
             round(getattr(a, 'z', 0.0), 2),
+            int(getattr(a, 'is_persister', False)),
         ])
     return out
 
@@ -186,6 +190,8 @@ def build_snapshot(sim_obj: Simulation) -> dict:
         "growth_modifier": round(getattr(sim_obj.env, 'growth_modifier', 1.0), 4),
         # RL stats
         "rl_stats": sim_obj.dqn.stats() if getattr(sim_obj, 'dqn', None) else None,
+        # Persister count
+        "persister_count": sum(1 for a in alive if getattr(a, 'is_persister', False)),
     }
 
 
@@ -446,9 +452,10 @@ def on_request_snapshot():
 if __name__ == "__main__":
     os.makedirs("output", exist_ok=True)
     os.makedirs("charts", exist_ok=True)
-    print("=" * 60)
-    print("  Bacterial Colony ABM — Live Dashboard")
-    print("  Open http://localhost:5000 in your browser")
-    print("=" * 60)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+    logger.info("=" * 60)
+    logger.info("  Bacterial Colony ABM — Live Dashboard")
+    logger.info("  Open http://localhost:5000 in your browser")
+    logger.info("=" * 60)
     socketio.run(app, host="0.0.0.0", port=5000, debug=False,
                  allow_unsafe_werkzeug=True)

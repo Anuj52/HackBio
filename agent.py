@@ -12,6 +12,7 @@ Biological basis:
   - Cooperation: EPS biofilm matrix as public good (cost to producer)
   - Quorum Sensing: AHL signal → collective biofilm activation (Fuqua 1994)
   - HGT: Conjugative transfer of resistance/toxin traits (Frost 2005)
+  - Persister cells: Phenotypic dormancy under stress (Balaban 2004)
   - Death: Stochastic — f(age, starvation, antibiotic, foreign toxin, density)
 
 Conservation: All growth consumes resources. Toxin & EPS production cost biomass.
@@ -92,6 +93,9 @@ class Bacterium:
     biofilm_member: bool = False
     fitness: float = 0.0          # computed each epoch
     mutated_this_division: bool = False  # track for mutation_frequency metric
+    is_persister: bool = False    # dormant persister cell (Balaban 2004)
+    parent_id: int = -1           # phylogeny: parent bacterium UID
+    lineage_depth: int = 0        # phylogeny: depth from initial ancestor
 
     # RL action flags (set externally by DQN before step)
     _rl_action: int = 6           # default = GROW
@@ -171,6 +175,30 @@ class Bacterium:
 
         # Phase transition
         self._update_phase(local_res, self._carrying_ratio)
+
+        # ── Persister cell dynamics (Balaban et al. 2004) ──
+        pers_cfg = self._cfg.get("persister", {})
+        if pers_cfg.get("enabled", False):
+            if self.is_persister:
+                # Wake up: exit dormancy with probability exit_rate
+                if random.random() < pers_cfg.get("exit_rate", 0.02):
+                    self.is_persister = False
+                else:
+                    # Persister: no growth, no death, no toxin, reduced maintenance
+                    maint = self._cfg["bacterium"]["maintenance_energy"]
+                    self.biomass -= maint * 0.1
+                    if self.biomass <= 0:
+                        self.biomass = 0.01
+                    self._rl_action = 6
+                    self._rl_cooperate = False
+                    self._rl_compete = False
+                    return None
+            else:
+                # Enter dormancy under antibiotic stress
+                stress_thresh = pers_cfg.get("stress_threshold", 0.3)
+                if local_ab > stress_thresh and random.random() < pers_cfg.get("entry_rate", 0.005):
+                    self.is_persister = True
+                    return None
 
         # Compute fitness
         self.compute_fitness(local_res, local_ab)
@@ -294,6 +322,8 @@ class Bacterium:
             x=nx, y=ny, z=child_z,
             age=0, biomass=self.biomass,
             phase=Phase.LAG, genotype=child_genotype,
+            parent_id=self.uid,
+            lineage_depth=self.lineage_depth + 1,
         )
         if is_3d:
             daughter.z = max(0.0, min(float(self._cfg.get('grid', {}).get('z_levels', 10)), daughter.z))

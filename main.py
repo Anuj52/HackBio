@@ -12,9 +12,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 import time
+
+logger = logging.getLogger(__name__)
 
 import yaml
 
@@ -30,8 +33,8 @@ def epoch_callback(epoch: int, sim) -> None:
         alive = len(sim.agents)
         res = sim.env.mean_resource()
         ab = sim.env.mean_antibiotic()
-        print(f"  [epoch {epoch:>4d}]  pop={alive:>5d}  "
-              f"resource={res:.3f}  antibiotic={ab:.4f}")
+        logger.info("  [epoch %4d]  pop=%5d  resource=%.3f  antibiotic=%.4f",
+                    epoch, alive, res, ab)
 
 
 def run_simulation(cfg: dict) -> None:
@@ -46,14 +49,14 @@ def run_simulation(cfg: dict) -> None:
     os.makedirs(charts_dir, exist_ok=True)
 
     total_epochs = cfg["simulation"]["epochs"]
-    print("=" * 60)
-    print("  Bacterial Colony ABM — Headless Simulation")
-    print(f"  Epochs: {total_epochs}")
-    print(f"  Initial pop: {cfg['bacterium']['initial_count']}")
-    print(f"  Carrying capacity: {cfg['population']['carrying_capacity']}")
-    print(f"  Grid: {cfg['grid']['width']}x{cfg['grid']['height']}")
-    print(f"  Seed: {cfg['simulation'].get('seed', 'random')}")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("  Bacterial Colony ABM — Headless Simulation")
+    logger.info("  Epochs: %d", total_epochs)
+    logger.info("  Initial pop: %d", cfg['bacterium']['initial_count'])
+    logger.info("  Carrying capacity: %d", cfg['population']['carrying_capacity'])
+    logger.info("  Grid: %dx%d", cfg['grid']['width'], cfg['grid']['height'])
+    logger.info("  Seed: %s", cfg['simulation'].get('seed', 'random'))
+    logger.info("=" * 60)
 
     t0 = time.time()
     sim = Simulation(cfg)
@@ -61,28 +64,26 @@ def run_simulation(cfg: dict) -> None:
     elapsed = time.time() - t0
 
     alive = len(sim.agents)
-    print("-" * 60)
-    print(f"  Simulation complete in {elapsed:.1f}s")
-    print(f"  Final population: {alive}")
-    print(f"  Total epochs run: {sim.epoch}")
+    logger.info("-" * 60)
+    logger.info("  Simulation complete in %.1fs", elapsed)
+    logger.info("  Final population: %d", alive)
+    logger.info("  Total epochs run: %d", sim.epoch)
 
-    # Export CSV
     csv_path = sim.export_csv()
-    print(f"  CSV saved: {csv_path}")
+    logger.info("  CSV saved: %s", csv_path)
 
-    # Generate charts
-    print("  Generating charts...")
+    logger.info("  Generating charts...")
     chart_files = generate_all_plots(sim)
-    print(f"  {len(chart_files)} charts saved to {charts_dir}/")
+    logger.info("  %d charts saved to %s/", len(chart_files), charts_dir)
     for f in chart_files:
-        print(f"    - {os.path.basename(f)}")
-    print("=" * 60)
-    print("  Done! Check output/ and charts/ directories.")
+        logger.info("    - %s", os.path.basename(f))
+    logger.info("=" * 60)
+    logger.info("  Done! Check output/ and charts/ directories.")
 
 
 def run_dashboard(cfg: dict) -> None:
     """Launch the Flask+SocketIO live dashboard."""
-    print("Launching live dashboard...")
+    logger.info("Launching live dashboard...")
     os.makedirs("output", exist_ok=True)
     os.makedirs("charts", exist_ok=True)
     # Import and run the dashboard
@@ -126,7 +127,7 @@ def main():
 
     # Load config
     if not os.path.exists(args.config):
-        print(f"Error: Config file '{args.config}' not found.", file=sys.stderr)
+        logger.error("Config file '%s' not found.", args.config)
         sys.exit(1)
 
     cfg = load_config(args.config)
@@ -148,4 +149,6 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
     main()
+

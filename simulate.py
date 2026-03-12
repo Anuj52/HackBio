@@ -26,10 +26,13 @@ CSV output columns (PS-mandated):
 from __future__ import annotations
 
 import csv
+import logging
 import os
 import random
 from collections import Counter, defaultdict
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -662,6 +665,14 @@ class Simulation:
             "cumulative_mutations": self.cumulative_mutations,
             "cumulative_hgt": self.cumulative_hgt,
             "total_resource_consumed": round(self.env.total_resource_consumed, 4),
+            # Persister & phylogeny metrics
+            "persister_count": sum(1 for a in alive if getattr(a, 'is_persister', False)),
+            "persister_fraction": round(
+                sum(1 for a in alive if getattr(a, 'is_persister', False)) / total_pop, 6
+            ) if total_pop > 0 else 0.0,
+            "max_lineage_depth": max(
+                (getattr(a, 'lineage_depth', 0) for a in alive), default=0
+            ),
         }
         self.metrics.append(row)
 
@@ -675,7 +686,7 @@ class Simulation:
             if callback:
                 callback(self.epoch, self)
             if len(self.agents) == 0:
-                print(f"[epoch {self.epoch}] Population extinct — stopping.")
+                logger.warning("[epoch %d] Population extinct — stopping.", self.epoch)
                 break
         return self.metrics
 
