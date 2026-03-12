@@ -17,11 +17,13 @@ The simulation models:
 - **Spatial diffusion** — nutrients, antibiotics, quorum signals (Fick's law, Neumann boundaries)
 - **Mutation & evolution** — per-division trait perturbation with cumulative tracking (LTEE-style clock-like accumulation)
 - **Cooperation** — quorum-sensing biofilm formation (LuxI/LuxR analogue)
-- **Competition** — bacteriocin toxin warfare between genotypes
-- **Horizontal gene transfer** — one-way conjugative plasmid transfer (donor → recipient, Frost et al. 2005)
+- **Compete** — bacteriocin toxin warfare between genotypes
+- **Horizontal gene transfer** — one-way conjugative plasmid transfer (donor → recipient, Frost 2005)
+- **Persister cells** — phenotypic dormancy under stress (Balaban 2004) to survive antibiotic attacks
+- **Phylogeny tracking** — recursive lineage depth and parent tracing
 - **Natural selection** — multi-trait fitness landscape
 - **Chemotaxis** — run-and-tumble on full Moore neighbourhood (8 directions + stay)
-- **Reinforcement Learning** — Double DQN with experience replay; 14-dim state, 7 discrete actions
+- **Reinforcement Learning** — Dueling DQN with Prioritized Experience Replay (PER); 14-dim state, 7 discrete actions
 - **3D Colony Structure** — z-coordinate depth per bacterium (biofilm layering)
 - **Physics** — Cardinal temperature, pH, and pressure growth models (Rosso et al. 1993, 1995)
 - **GPU Acceleration** — PyTorch CUDA/MPS for batch RL inference
@@ -29,15 +31,17 @@ The simulation models:
 
 ---
 
-## Reinforcement Learning — Double DQN
+## Reinforcement Learning — Dueling DQN & PER
 
 A shared Deep Q-Network learns survival strategies that bacteria would evolve over millions of years, compressed into hundreds of training epochs.
 
 ### Architecture
 
-- **Double DQN** with experience replay (Mnih et al. 2015; van Hasselt et al. 2016)
-- **One shared brain** trained from all bacteria's pooled experience — computationally tractable even with 10,000+ agents
-- **GPU-accelerated** batch inference via PyTorch (CUDA / MPS / CPU fallback)
+- **Dueling DQN** (Wang et al. 2016) splits network into value and advantage streams for faster convergence.
+- **Prioritized Experience Replay (PER)** (Schaul et al. 2016) using a custom `SumTree` prioritizes training on unexpected outcomes (high TD-error).
+- **Model Checkpointing** — save and load trained brain weights across runs.
+- **One shared brain** trained from all bacteria's pooled experience — computationally tractable even with 10,000+ agents.
+- **GPU-accelerated** batch inference via PyTorch (CUDA / MPS / CPU fallback).
 
 ### State Space (14 dimensions)
 
@@ -355,6 +359,14 @@ python main.py --epochs 300 --seed 42 --initial-count 500 --carrying-capacity 15
 python main.py --dashboard    # launches the web UI instead
 ```
 
+### Testing
+
+The project includes a comprehensive **49-test suite** covering core logic (agents, environment, RL architectures, server API) via `pytest`.
+
+```bash
+python -m pytest tests/ -v
+```
+
 ---
 
 ## Docker
@@ -373,18 +385,20 @@ docker run -p 5000:5000 hackbio
 
 ## Live Dashboard Features
 
-- **2D Canvas world** — zoom, pan, hover over individual bacteria
-- **3D Colony chart** — Plotly scatter3d showing colony depth structure
-- **Real-time stats** — population, fitness, resistance, cooperation, growth modifier
-- **RL stats panel** — epsilon, loss, buffer size, device (GPU/CPU)
-- **GPU indicator** — auto-detected GPU badge in topbar
-- **Layer toggles** — resource, antibiotic, biofilm, signal overlays
-- **11 live charts** — population, genotypes, phases, demographics, fitness, 3D colony
-- **Physics controls** — temperature, pressure, pH sliders in settings
-- **RL controls** — enable/disable RL brain, force CPU toggle
-- **Settings panel** — adjust grid size, epochs, mutation rate, antibiotic mode
-- **Speed control** — adjust simulation delay per epoch
-- **Report download** — ZIP with 15 PNGs + CSV + config.yaml
+- **2D Canvas world** — zoom, pan, hover over individual bacteria. Features a **loading skeleton** state.
+- **3D Colony chart** — Plotly scatter3d showing colony depth structure.
+- **Sparklines & Animated Counters** — beautiful data visualization for population, fitness, and resistance.
+- **Preset Scenarios** — instant load configs like "High Resistance Matrix" or "Peaceful Biofilm".
+- **Shareable Links** — config state is base64-encoded into the URL, allowing direct link sharing.
+- **Keyboard Shortcuts** — <kbd>Space</kbd> (Play/Pause), <kbd>S</kbd> (Settings), <kbd>C</kbd> (Charts), <kbd>Esc</kbd> (Close).
+- **Real-time stats** — population, fitness, persisters, cooperation, growth modifier.
+- **RL stats panel** — epsilon, loss, buffer size, device (GPU/CPU).
+- **GPU indicator** — auto-detected GPU badge in topbar.
+- **Layer toggles** — resource, antibiotic, biofilm, signal overlays.
+- **11 live charts** — population, genotypes, phases, demographics, fitness, 3D colony.
+- **Physics controls** — temperature, pressure, pH sliders in settings.
+- **RL controls** — enable/disable RL brain, force CPU toggle.
+- **Report download** — ZIP with 15 PNGs + CSV + config.yaml.
 
 ---
 
@@ -406,9 +420,12 @@ Computational Biology / Agent-Based Modeling Track
 - Riley MA, Wertz JE (2002). *Bacteriocins: evolution, ecology, and application*. Ann. Rev. Microbiol.
 - Fuqua WC et al. (1994). *Quorum sensing in bacteria: the LuxR-LuxI family*. J. Bacteriol.
 - Frost LS et al. (2005). *Mobile genetic elements: the agents of open source evolution*. Nat. Rev. Microbiol. — One-way conjugative HGT.
+- Balaban NQ et al. (2004). *Bacterial persistence as a phenotypic switch*. Science. — Persister cell dormancy dynamics.
 - Fisher RA (1930). *The Genetical Theory of Natural Selection*.
 - Mnih V et al. (2015). *Human-level control through deep reinforcement learning*. Nature.
 - van Hasselt H et al. (2016). *Deep Reinforcement Learning with Double Q-learning*. AAAI.
+- Wang Z et al. (2016). *Dueling Network Architectures for Deep Reinforcement Learning*. ICML.
+- Schaul T et al. (2016). *Prioritized Experience Replay*. ICLR.
 - Rosso L et al. (1993). *An unexpected correlation between cardinal temperatures of microbial growth*. J. Theor. Biol.
 - Rosso L et al. (1995). *Convenient model to describe the combined effects of temperature and pH on microbial growth*. Appl. Environ. Microbiol.
 - Abe F, Horikoshi K (2001). *The biotechnological potential of piezophiles*. Trends Biotechnol.
