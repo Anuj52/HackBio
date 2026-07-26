@@ -404,7 +404,7 @@ docker run -p 5000:5000 hackbio
 
 ## Team
 
-**HackBio** — Prashant Suthar
+**HackBio** — Prashant Suthar, Anuj Chaudhary
 
 Computational Biology / Agent-Based Modeling Track
 
